@@ -22,6 +22,7 @@ export const userChatStore = defineStore('chat',()=>{
     if (!authStore.accessToken) {
       console.error('缺少accessToken，无法连接WebSocket')
       authStore.loginOut()
+      location.reload()
       return
     }
     if (ws.value){
@@ -36,6 +37,7 @@ export const userChatStore = defineStore('chat',()=>{
     ws.value.onopen = () => {
       console.log("✅ WebSocket 连接成功");
       isConnected.value = true;
+      retryCount = 0
       if (reconnectTimeout.value){
         reconnectTimeout.value = null
       }
@@ -63,9 +65,18 @@ export const userChatStore = defineStore('chat',()=>{
   }
 
   async function handleIncomingMessage(data){
-    const { groupId , code} = data;  // TODO:type区分群聊还是私聊
-    console.log(groupId,code);
+    const channelId = data.channel_id
+    const code =data.code
+    console.log("收到消息", data);
 
+    // 强制踢出
+    if(code===403){
+      closeWebSocket()
+      authStore.loginOut()
+      location.reload()
+    }
+
+    // token过期，尝试刷新token
     if(code===401){
       const res = await refreshTokenAPI(localStorage.getItem('refreshToken'))
       if(res){
@@ -81,24 +92,32 @@ export const userChatStore = defineStore('chat',()=>{
           location.reload()
       }
     }
-    if (!groupId) return console.warn("消息缺少 group_id", data);
-    if (!messageMap[groupId]) {
-      messageMap[groupId] = [];
+
+
+    if (data.type === 'channel_chat'){
+      console.log('群组聊天消息',data);
+      if (!channelId) return console.warn("消息缺少 channel_id", data);
+      if (!messageMap[channelId]) {
+        messageMap[channelId] = [];
+      }
+      messageMap[channelId].push(data)
+      saveMessage(channelId,messageMap[channelId]); // 同步更新
+      throttledSaveMessage(channelId,messageMap[channelId]);
     }
-    messageMap[groupId].push(data)
-    // saveMessage(groupId,messageMap[groupId]); // 同步更新
-    throttledSaveMessage(groupId,messageMap[groupId]);
+
   }
 
   function sendMessage(msgdata){
     if(!currentChat.value){
       console.warn('请选择聊天对象');
-      return
+      return false
     }
     if(ws.value && isConnected.value){
       ws.value.send(JSON.stringify(msgdata))
+      return true
     }else{
       console.warn('WebSocket未连接，请稍后再试');
+      return false
     }
   }
 

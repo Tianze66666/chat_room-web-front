@@ -73,6 +73,7 @@ request.interceptors.response.use(
     }
     return res
   },error=>{
+    alert('请求失败')
     return Promise.reject(error)
   }
 )
